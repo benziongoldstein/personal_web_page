@@ -1,4 +1,5 @@
 import { FEED_SOURCES } from "@/lib/content/sources";
+import { fetchHomepageHeadline } from "@/lib/content/homepage-headlines";
 import { fetchSourceItems } from "@/lib/content/rss";
 import { getCurrentWindowKey, getNextUpdateDate } from "@/lib/content/time";
 import type { ContentItem, Snapshot } from "@/lib/content/types";
@@ -81,7 +82,7 @@ function buildStaticFallbackItems(now: Date): ContentItem[] {
       title: "אין כרגע נתונים חיים מהמקורות - מוצג מצב גיבוי",
       summary: "העדכון הבא ינסה שוב להביא ראשי/משני מחדשות, ספורט ומניות מהמקורות שהוגדרו.",
       url: "#",
-      imageUrl: "https://picsum.photos/seed/fallback-news/700/450",
+      imageUrl: undefined,
       source: "System",
       sourcePosition: 1,
       isHeadline: true,
@@ -189,6 +190,19 @@ function pickTopFromEachSource(
   return dedupeByTitle(out);
 }
 
+function uniqueBySource(items: ContentItem[]): ContentItem[] {
+  const seen = new Set<string>();
+  const unique: ContentItem[] = [];
+  for (const item of items) {
+    if (seen.has(item.source)) {
+      continue;
+    }
+    seen.add(item.source);
+    unique.push(item);
+  }
+  return unique;
+}
+
 function pickSecondaryFromEachSource(
   sourceResults: Array<{ sourceName: string; items: ContentItem[] }>,
   fromPosition: number,
@@ -221,6 +235,9 @@ export async function getSnapshot(): Promise<Snapshot> {
     sourceName: source.name,
     items: sourceResultsRaw[index]
   }));
+  const homepageHeadlines = (
+    await Promise.all(FEED_SOURCES.map((source) => fetchHomepageHeadline(source)))
+  ).filter((item): item is ContentItem => item !== null);
 
   const fetched = dedupeByTitle(sortByDate(sourceResultsRaw.flat()));
   if (fetched.length === 0) {
@@ -238,9 +255,9 @@ export async function getSnapshot(): Promise<Snapshot> {
   }));
 
   // Hard requirement: major headlines/secondary must come from source top positions.
-  const siteHeadlinesAll = pickTopFromEachSource(sourceResults, 1);
+  const siteHeadlinesAll = uniqueBySource([...homepageHeadlines, ...pickTopFromEachSource(sourceResults, 1)]);
   const siteSecondariesAll = pickSecondaryFromEachSource(sourceResults, 2, 4);
-  const siteHeadlinesFresh = pickTopFromEachSource(freshSourceResults, 1);
+  const siteHeadlinesFresh = uniqueBySource([...homepageHeadlines, ...pickTopFromEachSource(freshSourceResults, 1)]);
   const siteSecondaryFresh = pickSecondaryFromEachSource(freshSourceResults, 2, 4);
 
   // Build like major sites: prioritize "head + secondary" from the last hour.

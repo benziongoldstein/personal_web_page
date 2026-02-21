@@ -5,6 +5,7 @@ export type LanguageCode = "he" | "en";
 export type FeedSource = {
   name: string;
   url: string;
+  homepageUrl: string;
   category: ItemCategory;
   language: LanguageCode;
 };
