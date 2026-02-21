@@ -38,6 +38,14 @@ function firstH1(html: string): string {
   return match ? decodeEntities(stripHtml(match[1])) : "";
 }
 
+function firstHeadingByTag(html: string, tag: "h1" | "h2"): string {
+  const match = html.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  if (!match) {
+    return "";
+  }
+  return decodeEntities(stripHtml(match[1]));
+}
+
 function firstJsonLdHeadline(html: string): { title: string; url?: string; imageUrl?: string } | null {
   const scripts = [...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
   for (const script of scripts) {
@@ -85,7 +93,11 @@ export async function fetchHomepageHeadline(source: FeedSource): Promise<Content
   try {
     const response = await fetch(source.homepageUrl, {
       signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 FocusDashboard/1.0" },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "he-IL,he;q=0.9,en;q=0.8"
+      },
       cache: "no-store"
     });
     if (!response.ok) {
@@ -93,13 +105,16 @@ export async function fetchHomepageHeadline(source: FeedSource): Promise<Content
     }
 
     const html = await response.text();
+    const ynetHeadline = source.name === "Ynet" ? firstHeadingByTag(html, "h1") : "";
+    const now14Headline = source.name === "ערוץ 14" ? firstHeadingByTag(html, "h1") : "";
     const jsonLd = firstJsonLdHeadline(html);
     const ogTitle = decodeEntities(metaContent(html, "og:title"));
     const ogImage = metaContent(html, "og:image");
     const ogUrl = metaContent(html, "og:url");
     const h1Title = firstH1(html);
+    const h2Title = firstHeadingByTag(html, "h2");
 
-    const title = jsonLd?.title || h1Title || ogTitle;
+    const title = ynetHeadline || now14Headline || jsonLd?.title || h1Title || h2Title || ogTitle;
     if (!title || title.length < 8) {
       return null;
     }
