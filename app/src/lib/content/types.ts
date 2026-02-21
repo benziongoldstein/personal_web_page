@@ -16,6 +16,8 @@ export type ContentItem = {
   url: string;
   imageUrl?: string;
   source: string;
+  sourcePosition: number;
+  isHeadline: boolean;
   publishedAt: string;
   category: ItemCategory;
   language: LanguageCode;
@@ -25,6 +27,8 @@ export type Snapshot = {
   updatedAt: string;
   nextUpdateAt: string;
   leadStory: ContentItem;
+  headlineItems: ContentItem[];
+  secondaryItems: ContentItem[];
   quickStories: string[];
   items: ContentItem[];
   unavailableSources: string[];

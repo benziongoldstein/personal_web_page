@@ -63,8 +63,10 @@ function buildRtlBasicItem(now: Date): ContentItem {
     title: pick.title,
     summary: pick.summary,
     url: "#",
-    imageUrl: `https://picsum.photos/seed/${pick.imageSeed}/700/450`,
+    imageUrl: undefined,
     source: "RTL Design",
+    sourcePosition: 1,
+    isHeadline: true,
     publishedAt: now.toISOString(),
     category: "rtl",
     language: "he"
@@ -81,6 +83,8 @@ function buildStaticFallbackItems(now: Date): ContentItem[] {
       url: "#",
       imageUrl: "https://picsum.photos/seed/fallback-news/700/450",
       source: "System",
+      sourcePosition: 1,
+      isHeadline: true,
       publishedAt: nowIso,
       category: "news",
       language: "he"
@@ -104,6 +108,8 @@ function buildFallbackSnapshot(now: Date): Snapshot {
     updatedAt: now.toISOString(),
     nextUpdateAt: getNextUpdateDate(now).toISOString(),
     leadStory,
+    headlineItems: staticItems.slice(0, 1),
+    secondaryItems: staticItems.slice(1),
     quickStories: [
       "אין כרגע גישה למקורות, מוצג מצב fallback זמני.",
       "העדכון הבא יתבצע בחלון הזמן הבא.",
@@ -169,6 +175,35 @@ function fillToLimit(primary: ContentItem[], fallbackPool: ContentItem[], limit:
   return filled.slice(0, limit);
 }
 
+function pickTopFromEachSource(
+  sourceResults: Array<{ sourceName: string; items: ContentItem[] }>,
+  maxPerSource: number
+): ContentItem[] {
+  const out: ContentItem[] = [];
+  for (const sourceEntry of sourceResults) {
+    const sourceHeads = sourceEntry.items
+      .filter((item) => item.category !== "rtl" && item.sourcePosition <= maxPerSource)
+      .slice(0, maxPerSource);
+    out.push(...sourceHeads);
+  }
+  return dedupeByTitle(out);
+}
+
+function pickSecondaryFromEachSource(
+  sourceResults: Array<{ sourceName: string; items: ContentItem[] }>,
+  fromPosition: number,
+  toPosition: number
+): ContentItem[] {
+  const out: ContentItem[] = [];
+  for (const sourceEntry of sourceResults) {
+    const sourceSecondary = sourceEntry.items
+      .filter((item) => item.category !== "rtl" && item.sourcePosition >= fromPosition && item.sourcePosition <= toPosition)
+      .slice(0, Math.max(0, toPosition - fromPosition + 1));
+    out.push(...sourceSecondary);
+  }
+  return dedupeByTitle(out);
+}
+
 export async function getSnapshot(): Promise<Snapshot> {
   const now = new Date();
   const windowKey = getCurrentWindowKey(now);
@@ -202,6 +237,12 @@ export async function getSnapshot(): Promise<Snapshot> {
     items: entry.items.filter((item) => isFreshWithinMinutes(item, now, FRESHNESS_WINDOW_MINUTES))
   }));
 
+  // Hard requirement: major headlines/secondary must come from source top positions.
+  const siteHeadlinesAll = pickTopFromEachSource(sourceResults, 1);
+  const siteSecondariesAll = pickSecondaryFromEachSource(sourceResults, 2, 4);
+  const siteHeadlinesFresh = pickTopFromEachSource(freshSourceResults, 1);
+  const siteSecondaryFresh = pickSecondaryFromEachSource(freshSourceResults, 2, 4);
+
   // Build like major sites: prioritize "head + secondary" from the last hour.
   const newsFresh = pickHeadAndSecondary(freshSourceResults, "news", 12);
   const sportsFresh = pickHeadAndSecondary(freshSourceResults, "sports", 8);
@@ -209,7 +250,15 @@ export async function getSnapshot(): Promise<Snapshot> {
   const marketFresh = marketFreshFromHeads.length > 0 ? marketFreshFromHeads : pickByCategory(freshFetched, "market", 4);
   const rtlBasic = buildRtlBasicItem(now);
 
-  const freshComposed = dedupeByTitle([...newsFresh, ...sportsFresh, ...marketFresh, rtlBasic]);
+  const freshComposed = dedupeByTitle([
+    ...(siteHeadlinesFresh.length > 0 ? siteHeadlinesFresh : siteHeadlinesAll),
+    ...siteSecondaryFresh,
+    ...(siteSecondaryFresh.length > 0 ? [] : siteSecondariesAll),
+    ...newsFresh,
+    ...sportsFresh,
+    ...marketFresh,
+    rtlBasic
+  ]);
   const allNews = pickHeadAndSecondary(sourceResults, "news", 14);
   const allSports = pickHeadAndSecondary(sourceResults, "sports", 9);
   const allMarketFromHeads = pickHeadAndSecondary(sourceResults, "market", 5);
@@ -230,6 +279,8 @@ export async function getSnapshot(): Promise<Snapshot> {
   }
 
   const leadStory = composed[0] ?? fetched[0];
+  const headlineItems = dedupeByTitle(siteHeadlinesAll).slice(0, 8);
+  const secondaryItems = dedupeByTitle(siteSecondariesAll).slice(0, 12);
   const quickSource = newsFresh.length > 0 ? newsFresh : allNews;
   const quickStories = quickSource.slice(1, 5).map((item) => item.title);
 
@@ -237,6 +288,8 @@ export async function getSnapshot(): Promise<Snapshot> {
     updatedAt: now.toISOString(),
     nextUpdateAt: getNextUpdateDate(now).toISOString(),
     leadStory,
+    headlineItems,
+    secondaryItems,
     quickStories,
     items: composed,
     unavailableSources,

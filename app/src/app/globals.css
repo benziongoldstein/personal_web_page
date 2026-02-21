@@ -79,19 +79,24 @@ a {
   gap: 0.45rem;
 }
 
-.news-nav button {
+.topic-link {
   border: 0;
   border-radius: 0;
   border-left: 1px solid #d9e1ef;
   background: transparent;
   color: #24324a;
   padding: 0.15rem 0.6rem;
-  cursor: pointer;
   font-size: 0.88rem;
+  text-decoration: none;
 }
 
-.news-nav button:hover {
+.topic-link:hover {
   color: #d71920;
+}
+
+.topic-link-active {
+  color: #d71920;
+  font-weight: 700;
 }
 
 .breaking-strip {
@@ -273,6 +278,21 @@ a {
   border-radius: 999px;
   font-size: 0.75rem;
   padding: 0.18rem 0.55rem;
+}
+
+.headline-badge {
+  display: inline-block;
+  margin-inline-start: 0.35rem;
+  margin-bottom: 0.45rem;
+  background: #d71920;
+  color: #fff;
+  border-radius: 999px;
+  padding: 0.16rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.secondary-badge {
+  background: #42536e;
 }
 
 .article-body h3 {

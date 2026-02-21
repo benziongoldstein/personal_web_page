@@ -1,6 +1,7 @@
 import type { ContentItem, FeedSource } from "@/lib/content/types";
 
 const HTTP_TIMEOUT_MS = 8000;
+const IMAGE_ENRICH_LIMIT = 8;
 
 function decodeHtmlEntities(value: string): string {
   const namedEntities: Record<string, string> = {
@@ -97,6 +98,61 @@ function getSummary(itemXml: string): string {
   return cleanHtml(summaryRaw).slice(0, 260);
 }
 
+function extractMetaContent(html: string, property: string): string {
+  const regex = new RegExp(
+    `<meta[^>]+(?:property|name)=["']${property}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+    "i"
+  );
+  return html.match(regex)?.[1]?.trim() ?? "";
+}
+
+async function fetchOgImageFromArticle(url: string): Promise<string | undefined> {
+  if (!/^https?:\/\//i.test(url)) {
+    return undefined;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0 FocusDashboard/1.0" },
+      cache: "no-store"
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+    const html = await response.text();
+    const ogImage = extractMetaContent(html, "og:image");
+    if (ogImage) {
+      return ogImage;
+    }
+    const twitterImage = extractMetaContent(html, "twitter:image");
+    return twitterImage || undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function enrichMissingImages(items: ContentItem[]): Promise<ContentItem[]> {
+  const missing = items.filter((item) => !item.imageUrl).slice(0, IMAGE_ENRICH_LIMIT);
+  if (missing.length === 0) {
+    return items;
+  }
+
+  const lookups = await Promise.all(
+    missing.map(async (item) => ({
+      id: item.id,
+      imageUrl: await fetchOgImageFromArticle(item.url)
+    }))
+  );
+  const byId = new Map(lookups.filter((entry) => entry.imageUrl).map((entry) => [entry.id, entry.imageUrl as string]));
+
+  return items.map((item) => (byId.has(item.id) ? { ...item, imageUrl: byId.get(item.id) } : item));
+}
+
 function normalizePublishedAt(itemXml: string): string {
   const rawPublished =
     cleanHtml(extractTag(itemXml, "pubDate")) ||
@@ -153,6 +209,8 @@ function parseSingleItem(itemXml: string, source: FeedSource, index: number): Co
     url: link,
     imageUrl: extractImageUrl(itemXml),
     source: source.name,
+    sourcePosition: index + 1,
+    isHeadline: index < 2,
     publishedAt,
     category: source.category,
     language: source.language
@@ -178,9 +236,10 @@ export async function fetchSourceItems(source: FeedSource): Promise<ContentItem[
 
     const xml = await response.text();
     const rawItems = parseRssItems(xml).slice(0, 18);
-    return rawItems
+    const parsed = rawItems
       .map((item, index) => parseSingleItem(item, source, index))
       .filter((item): item is ContentItem => item !== null);
+    return enrichMissingImages(parsed);
   } catch {
     return [];
   } finally {
